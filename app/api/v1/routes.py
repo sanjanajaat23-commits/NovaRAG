@@ -7,14 +7,14 @@ router = APIRouter()
 def health_check():
     return {
         "status": "healthy",
-        "service": "Enterprise Multi-Agent RAG Platform",
+        "service": "NovaRAG — Enterprise Multi-Agent AI",
         "backend": "FastAPI",
-        "llm": "Ollama Llama 3.2",
-        "vector_store": "FAISS",
-        "vector_persistence": True,
+        "llm": "OpenAI GPT",
+        "vector_store": "Lightweight in-memory retrieval",
+        "vector_persistence": False,
         "session_isolation": True,
-        "memory": "SQLite",
-        "message": "All core backend services are running",
+        "memory": "In-memory session memory",
+        "message": "NovaRAG backend is running",
     }
 
 
@@ -26,8 +26,8 @@ def system_status():
             "api": "online",
             "rag": "enabled",
             "multi_agent": "enabled",
-            "persistent_memory": "enabled",
-            "persistent_vector_store": "enabled",
+            "persistent_memory": "serverless session",
+            "persistent_vector_store": "serverless session",
             "session_isolation": "enabled",
             "multi_document": "enabled",
         },
