@@ -11,102 +11,40 @@ from app.rag.vectorstore import (
     clear_vector_store,
 )
 
-
 router = APIRouter()
+UPLOAD_ROOT = Path("/tmp/novarag_uploads")
 
-UPLOAD_ROOT = Path("uploads")
-
-
-# =========================================================
-# UPLOAD DOCUMENT
-# =========================================================
 
 @router.post("/upload")
-async def upload_pdf(
-    file: UploadFile = File(...),
-    session_id: str = Form(...)
-):
-    """
-    Upload a PDF and store its embeddings inside
-    the current session's persistent FAISS vector store.
-    """
-
+async def upload_pdf(file: UploadFile = File(...), session_id: str = Form(...)):
     if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="No filename provided."
-        )
-
+        raise HTTPException(status_code=400, detail="No filename provided.")
     if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(
-            status_code=400,
-            detail="Only PDF files are supported."
-        )
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
-    session_upload_dir = (
-        UPLOAD_ROOT / session_id
-    )
-
-    session_upload_dir.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    file_path = (
-        session_upload_dir / file.filename
-    )
+    session_upload_dir = UPLOAD_ROOT / session_id
+    session_upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = session_upload_dir / Path(file.filename).name
 
     try:
-        with open(
-            file_path,
-            "wb"
-        ) as buffer:
-            shutil.copyfileobj(
-                file.file,
-                buffer
-            )
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
-        # Load PDF
-        documents = load_pdf(
-            str(file_path)
-        )
-
+        documents = load_pdf(str(file_path))
         if not documents:
-            raise HTTPException(
-                status_code=400,
-                detail="No readable content found in PDF."
-            )
+            raise HTTPException(status_code=400, detail="No readable content found in PDF.")
 
-        # Split PDF into chunks
-        chunks = split_documents(
-            documents
-        )
-
+        chunks = split_documents(documents)
         if not chunks:
-            raise HTTPException(
-                status_code=400,
-                detail="Unable to create document chunks."
-            )
+            raise HTTPException(status_code=400, detail="Unable to create document chunks.")
 
-        # Add metadata
         for chunk in chunks:
-            chunk.metadata[
-                "session_id"
-            ] = session_id
+            chunk.setdefault("metadata", {})
+            chunk["metadata"]["session_id"] = session_id
+            chunk["metadata"]["filename"] = file.filename
 
-            chunk.metadata[
-                "filename"
-            ] = file.filename
-
-        # Add to persistent session FAISS store
-        create_vectorstore(
-            chunks,
-            session_id=session_id
-        )
-
-        info = get_vector_store_info(
-            session_id
-        )
+        create_vectorstore(chunks, session_id=session_id)
+        info = get_vector_store_info(session_id)
 
         return {
             "status": "success",
@@ -114,94 +52,33 @@ async def upload_pdf(
             "filename": file.filename,
             "pages": len(documents),
             "chunks_added": len(chunks),
-            "total_chunks": info[
-                "total_chunks"
-            ],
-            "total_documents": info[
-                "total_documents"
-            ],
-            "documents": info[
-                "documents"
-            ],
-            "persistent": True,
+            "total_chunks": info["total_chunks"],
+            "total_documents": info["total_documents"],
+            "documents": info["documents"],
+            "persistent": False,
         }
-
     except HTTPException:
         raise
-
     except Exception as error:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Document processing failed: {str(error)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Document processing failed: {error}") from error
 
 
-# =========================================================
-# LIST SESSION DOCUMENTS
-# =========================================================
-
-@router.get(
-    "/documents/{session_id}"
-)
-async def list_documents(
-    session_id: str
-):
-    """
-    Return information about documents stored
-    for the current session.
-    """
-
-    info = get_vector_store_info(
-        session_id
-    )
-
-    return {
-        "status": "success",
-        **info,
-    }
+@router.get("/documents/{session_id}")
+async def list_documents(session_id: str):
+    return {"status": "success", **get_vector_store_info(session_id)}
 
 
-# =========================================================
-# CLEAR ALL SESSION DOCUMENTS
-# =========================================================
-
-@router.delete(
-    "/documents/{session_id}"
-)
-async def clear_documents(
-    session_id: str
-):
-    """
-    Delete all uploaded documents and persistent
-    FAISS data belonging to a session.
-    """
-
-    vector_store_removed = (
-        clear_vector_store(
-            session_id
-        )
-    )
-
-    session_upload_dir = (
-        UPLOAD_ROOT / session_id
-    )
-
-    files_removed = False
-
-    if session_upload_dir.exists():
-        shutil.rmtree(
-            session_upload_dir
-        )
-
-        files_removed = True
-
+@router.delete("/documents/{session_id}")
+async def clear_documents(session_id: str):
+    vector_store_removed = clear_vector_store(session_id)
+    session_upload_dir = UPLOAD_ROOT / session_id
+    files_removed = session_upload_dir.exists()
+    if files_removed:
+        shutil.rmtree(session_upload_dir)
     return {
         "status": "success",
         "session_id": session_id,
-        "vector_store_removed":
-            vector_store_removed,
-        "uploaded_files_removed":
-            files_removed,
-        "message":
-            "All documents for this session were cleared.",
+        "vector_store_removed": vector_store_removed,
+        "uploaded_files_removed": files_removed,
+        "message": "All documents for this session were cleared.",
     }
