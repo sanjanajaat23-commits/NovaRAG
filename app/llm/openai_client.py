@@ -1,31 +1,28 @@
-import requests
+import os
+
 from openai import OpenAI
 
-from app.config.settings import settings
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
 def generate_answer(prompt: str) -> str:
-    """Generate an answer using OpenAI in production, with local Ollama fallback."""
-    if settings.OPENAI_API_KEY:
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=[
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
+    """Generate with OpenAI, or return a safe demo response when no key is configured."""
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return (
+            "NovaRAG demo mode is active.\n\n"
+            "I received your request and prepared the document-aware workflow. "
+            "Add OPENAI_API_KEY in Vercel Environment Variables for live AI responses.\n\n"
+            f"Request context:\n{prompt[-1000:]}"
         )
-        return (response.choices[0].message.content or "").strip()
 
-    response = requests.post(
-        settings.OLLAMA_URL,
-        json={
-            "model": settings.OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-        },
-        timeout=120,
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=MODEL,
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": "You are NovaRAG, an enterprise document intelligence assistant. Answer clearly and only use supplied context for document questions."},
+            {"role": "user", "content": prompt},
+        ],
     )
-    response.raise_for_status()
-    result = response.json()
-    return result.get("response", "").strip()
+    return (response.choices[0].message.content or "No response returned.").strip()
